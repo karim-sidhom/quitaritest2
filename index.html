@@ -40,6 +40,20 @@
         ::-webkit-scrollbar-thumb { background: #4B5563; border-radius: 5px; }
         ::-webkit-scrollbar-thumb:hover { background: #6B7280; }
 
+        /* Anti-copy protection */
+        html, body, * {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+        select, input {
+            -webkit-user-select: auto;
+            -moz-user-select: auto;
+            user-select: auto;
+        }
+
         /* Metro Map Timeline Styles */
         .timeline-container {
             position: relative;
@@ -207,6 +221,16 @@
             color: #60A5FA; /* Blue 400 */
             transform: scale(1.1);
         }
+        .train-number {
+            font-size: 0.7rem;
+            font-weight: 500;
+            color: #9CA3AF; /* Gray 400 */
+            margin-top: 2px;
+        }
+        .departure-time.current .train-number {
+            font-size: 0.85rem;
+            color: #93C5FD; /* Blue 300 */
+        }
         .departure-times::after {
             content: '';
             position: absolute;
@@ -327,6 +351,7 @@
                 youAreHere: "You are here",
                 installText: "Install this app on your device",
                 installBtn: "Install",
+                trainLabel: "Train n°",
             },
             fr: {
                 mainTitle: "Horaires en Direct du Métro du Sahel",
@@ -343,6 +368,7 @@
                 youAreHere: "Vous êtes ici",
                 installText: "Installer cette application sur votre appareil",
                 installBtn: "Installer",
+                trainLabel: "Train n°",
             },
             ar: {
                 mainTitle: "الجدول الزمني المباشر لمترو الساحل",
@@ -359,6 +385,7 @@
                 youAreHere: "أنت هنا",
                 installText: "ثبّت هذا التطبيق على جهازك",
                 installBtn: "تثبيت",
+                trainLabel: "القطار رقم",
             }
         };
 
@@ -1342,11 +1369,10 @@
             if (stationIndex === -1) return null;
 
             const allDepartures = scheduleData.trips
-                .map(trip => trip.times[stationIndex])
-                .filter(time => time !== null)
-                .map(timeStr => parseTime(timeStr));
+                .filter(trip => trip.times[stationIndex] !== null)
+                .map(trip => ({ time: parseTime(trip.times[stationIndex]), tripId: trip.id }));
 
-            let nextDepartureIndex = allDepartures.findIndex(time => time > now);
+            let nextDepartureIndex = allDepartures.findIndex(d => d.time > now);
 
             if (nextDepartureIndex === -1) { // No more trains today
                 return { previous: allDepartures[allDepartures.length - 1] || null, current: null, next: null };
@@ -1407,14 +1433,15 @@
 
         function updateResult(resultElement, departureTimes, lang) {
             if (departureTimes && departureTimes.current) {
-                const formatTime = (date) => date ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                const formatTime = (dep) => dep ? dep.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                const formatTrain = (dep) => dep ? `<div class="train-number">${translations[lang].trainLabel} ${dep.tripId}</div>` : '';
 
                 resultElement.innerHTML = `
                     <p class="text-sm text-gray-400 mb-2">${translations[lang].nextTrain}</p>
                     <div class="departure-times">
-                        <div class="departure-time">${formatTime(departureTimes.previous)}</div>
-                        <div class="departure-time current">${formatTime(departureTimes.current)}</div>
-                        <div class="departure-time">${formatTime(departureTimes.next)}</div>
+                        <div class="departure-time">${formatTime(departureTimes.previous)}${formatTrain(departureTimes.previous)}</div>
+                        <div class="departure-time current">${formatTime(departureTimes.current)}${formatTrain(departureTimes.current)}</div>
+                        <div class="departure-time">${formatTime(departureTimes.next)}${formatTrain(departureTimes.next)}</div>
                     </div>
                 `;
             } else {
@@ -1560,7 +1587,7 @@
                             <div class="ping"></div>
                             <div class="pulsing-dot"></div>
                         </div>
-                        <div class="train-tooltip">${translations[lang].enRouteTo} ${stationTranslations[train.toStation][lang]}</div>
+                        <div class="train-tooltip">${translations[lang].trainLabel} ${train.tripId} — ${translations[lang].enRouteTo} ${stationTranslations[train.toStation][lang]}</div>
                     `;
                     trainContainer.appendChild(trainWrapper);
                 }
@@ -1730,6 +1757,45 @@
             });
         }
 
+        // --- ANTI-COPY / ANTI-INSPECT PROTECTION ---
+        function setupProtection() {
+            const REDIRECT_URL = 'https://batonade.kieda.online';
+
+            document.addEventListener('contextmenu', (e) => e.preventDefault());
+            document.addEventListener('copy', (e) => e.preventDefault());
+            document.addEventListener('cut', (e) => e.preventDefault());
+            document.addEventListener('dragstart', (e) => e.preventDefault());
+
+            document.addEventListener('keydown', (e) => {
+                const key = e.key;
+                const isInspectShortcut =
+                    key === 'F12' ||
+                    (e.ctrlKey && e.shiftKey && (key === 'I' || key === 'i')) ||
+                    (e.ctrlKey && e.shiftKey && (key === 'J' || key === 'j')) ||
+                    (e.ctrlKey && e.shiftKey && (key === 'C' || key === 'c')) ||
+                    (e.metaKey && e.altKey && (key === 'I' || key === 'i')) ||
+                    (e.ctrlKey && (key === 'U' || key === 'u'));
+
+                if (isInspectShortcut) {
+                    e.preventDefault();
+                    window.location.href = REDIRECT_URL;
+                }
+            });
+
+            // DevTools-open detection (window/viewport size gap heuristic)
+            const threshold = 160;
+            let redirected = false;
+            setInterval(() => {
+                if (redirected) return;
+                const widthGap = window.outerWidth - window.innerWidth > threshold;
+                const heightGap = window.outerHeight - window.innerHeight > threshold;
+                if (widthGap || heightGap) {
+                    redirected = true;
+                    window.location.href = REDIRECT_URL;
+                }
+            }, 500);
+        }
+
         // --- INITIALIZATION ---
         function init() {
             stationSelectMS.addEventListener('change', (e) => { window.selectedStationMS = e.target.value; runUpdates(); });
@@ -1747,6 +1813,7 @@
             });
 
             setupPWA();
+            setupProtection();
 
             const urlParams = new URLSearchParams(window.location.search);
             const lang = urlParams.get('lang') || 'en';
